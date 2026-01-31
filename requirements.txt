@@ -1,0 +1,43 @@
+# requirements.txt
+pandas>=2.0.0
+numpy>=1.24.0
+requests>=2.31.0
+datetime
+
+# Installation and Usage Guide
+
+## Installation:
+1. Install Python 3.8 or higher
+2. Install dependencies:
+   pip install -r requirements.txt
+
+## Usage:
+python crypto_backtester.py
+
+## Example workflow:
+1. Create portfolio: "My_Portfolio"
+2. Set deposit: 500000
+3. Set max assets: 50
+4. Add assets:
+   - Ticker: BTC
+   - Zones: 1
+   - Zone range: 25000-20000
+   - Take profits: standard
+   - Rebalancing: y
+
+## Features:
+- Automatic zone level distribution (5 levels per zone, 20% each)
+- Standard TPs: 100%, 200%, 300%, ATH, trailing
+- Custom TPs with flexible configuration
+- Stop loss at breakeven after 3rd TP
+- Trailing stop after 4th TP
+- Rebalancing when price returns to zone
+- Comprehensive trade logging and statistics
+- CSV export of results
+
+## Data Source:
+Uses CoinGecko API for historical price data (free, no API key required)
+
+## Supported Assets:
+BTC, ETH, BNB, ADA, SOL, XRP, DOGE, DOT, AVAX, SHIB, MATIC, LTC, UNI, LINK, TRX, NEAR, ATOM, XLM, ALGO, VET
+(Can be extended by updating ticker_mapping in CoinGeckoAPI class)

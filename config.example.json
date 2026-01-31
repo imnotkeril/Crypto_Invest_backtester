@@ -1,0 +1,23 @@
+{
+  "name": "demo_portfolio",
+  "deposit": 1000,
+  "max_assets": 2,
+  "assets": [
+    {
+      "ticker": "BTC",
+      "rebalancing": true,
+      "zones": [
+        { "price_from": 30000, "price_to": 20000 },
+        { "price_from": 20000, "price_to": 15000 }
+      ],
+      "take_profits": [
+        { "tp_type": "percent", "value": 100 },
+        { "tp_type": "percent", "value": 200 },
+        { "tp_type": "percent", "value": 300 },
+        { "tp_type": "ath" },
+        { "tp_type": "trailing" }
+      ]
+    }
+  ]
+}
+
