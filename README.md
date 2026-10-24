@@ -102,8 +102,7 @@ Results are saved to `results/` directory as CSV files with:
 ## Data Sources
 
 - **Primary**: Binance API (USDT pairs)
-- **Fallback**: CoinGecko API (for historical data)
-- **Demo mode**: Generates synthetic data if API fails
+- No fallback: `DataProvider` uses Binance only. If Binance returns nothing (e.g. unknown ticker or network error), the asset gets no data and no trades.
 
 ## Supported Assets
 
@@ -124,6 +123,6 @@ This project is provided as-is for educational and research purposes.
 ## Notes
 
 - Historical data availability depends on API limits
-- Demo data is generated when API calls fail
+- `CoinGeckoAPI` and demo-data generators exist in the code but are not wired into `DataProvider`
 - Results are saved with timestamps for easy tracking
 - Free cash tracking for portfolio management
