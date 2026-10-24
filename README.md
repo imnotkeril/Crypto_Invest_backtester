@@ -13,7 +13,7 @@ A comprehensive cryptocurrency portfolio backtesting tool that simulates trading
 
 ## Installation
 
-1. Install Python 3.8 or higher
+1. Install Python 3.9 or higher (required by current pandas)
 2. Install dependencies:
 ```bash
 pip install -r requirements.txt
@@ -89,6 +89,19 @@ python crypto_backtester.py --config config.json
 - Trailing stop activates after 4th take-profit
 - Automatic position closure on stop-loss trigger
 
+## Tests
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest tests
+```
+
+Tests use synthetic price data and never call the network.
+
+## Exit codes
+
+`0` success, `1` error (bad config, no data for a ticker or Binance unreachable), `130` interrupted.
+
 ## Output
 
 Results are saved to `results/` directory as CSV files with:
@@ -113,12 +126,11 @@ All major cryptocurrencies available on Binance with USDT pairs:
 ## Requirements
 
 - pandas >= 2.0.0
-- numpy >= 1.24.0
 - requests >= 2.31.0
 
 ## License
 
-This project is provided as-is for educational and research purposes.
+MIT, see [LICENSE](LICENSE). Educational and research use; not financial advice.
 
 ## Notes
 
