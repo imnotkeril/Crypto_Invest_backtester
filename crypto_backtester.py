@@ -3,12 +3,16 @@ from typing import List, Dict, Optional, Tuple
 from datetime import datetime
 import argparse
 import pandas as pd
-import numpy as np
 import requests
 import time
 import os
 import json
+import re
 import sys
+
+
+class DataUnavailableError(RuntimeError):
+    """Raised when historical data for an asset cannot be loaded"""
 
 
 @dataclass
@@ -85,6 +89,12 @@ class Portfolio:
             if asset.ticker == ticker:
                 return asset
         return None
+
+
+def safe_filename(name: str) -> str:
+    """Reduce a user-supplied name to characters safe in a file name"""
+    cleaned = re.sub(r"[^\w.+-]", "_", str(name)).strip(".")
+    return cleaned or "portfolio"
 
 
 def ensure_utf8_output():
@@ -236,315 +246,6 @@ class Position:
         self.tp_sold_quantity[tp_level] += quantity_to_sell
 
         return quantity_to_sell, usd_received
-
-
-class CoinGeckoAPI:
-    """CoinGecko API implementation for historical data"""
-
-    def __init__(self):
-        self.base_url = "https://api.coingecko.com/api/v3"
-        self.session = requests.Session()
-
-    def get_coin_id(self, ticker: str) -> str:
-        """Get CoinGecko coin ID by ticker"""
-        # Remove USDT suffix if present
-        clean_ticker = ticker.replace('USDT', '').replace('USD', '').upper()
-
-        # Basic mapping for most popular coins (for faster lookup)
-        popular_mapping = {
-            'BTC': 'bitcoin',
-            'ETH': 'ethereum',
-            'BNB': 'binancecoin',
-            'ADA': 'cardano',
-            'SOL': 'solana',
-            'XRP': 'ripple',
-            'DOGE': 'dogecoin',
-            'DOT': 'polkadot',
-            'AVAX': 'avalanche-2',
-            'SHIB': 'shiba-inu',
-            'MATIC': 'matic-network',
-            'LTC': 'litecoin',
-            'UNI': 'uniswap',
-            'LINK': 'chainlink',
-            'TRX': 'tron',
-            'NEAR': 'near',
-            'ATOM': 'cosmos',
-            'XLM': 'stellar',
-            'ALGO': 'algorand',
-            'VET': 'vechain',
-            'FTM': 'fantom',
-            'SAND': 'the-sandbox',
-            'MANA': 'decentraland'
-        }
-
-        if clean_ticker in popular_mapping:
-            coin_id = popular_mapping[clean_ticker]
-            print(f"🔍 {ticker} -> {clean_ticker} -> {coin_id}")
-            return coin_id
-        else:
-            # For unknown tickers, try to search dynamically
-            print(f"🔍 {ticker} -> {clean_ticker} -> searching via API...")
-
-            # Try direct lowercase first
-            potential_id = clean_ticker.lower()
-
-            # If ticker looks like it could be a coin ID already, return as-is
-            return potential_id
-
-    def get_historical_data(
-        self, ticker: str, start_date: str, end_date: str
-    ) -> pd.DataFrame:
-        """Get historical data from CoinGecko"""
-        coin_id = self.get_coin_id(ticker)
-
-        try:
-            # Convert dates to timestamps
-            start_ts = int(
-                datetime.strptime(start_date, "%Y-%m-%d").timestamp()
-            )
-            end_ts = int(
-                datetime.strptime(end_date, "%Y-%m-%d").timestamp()
-            )
-
-            # Try with public API first
-            url = f"{self.base_url}/coins/{coin_id}/market_chart/range"
-            params = {
-                'vs_currency': 'usd',
-                'from': start_ts,
-                'to': end_ts
-            }
-
-            headers = {
-                'User-Agent': (
-                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                    'AppleWebKit/537.36'
-                )
-            }
-
-            print(f"📡 Loading data for {coin_id}...")
-            response = self.session.get(
-                url, params=params, headers=headers, timeout=15
-            )
-
-            if response.status_code == 401:
-                print("⚠️  API limit reached, trying alternative method...")
-                # Try simpler endpoint
-                return self._get_simple_prices(coin_id, start_date, end_date)
-
-            response.raise_for_status()
-            data = response.json()
-
-            if 'prices' not in data or not data['prices']:
-                print(f"❌ No price data for {coin_id}")
-                return pd.DataFrame(
-                    columns=['date', 'open', 'high', 'low', 'close', 'volume']
-                )
-
-            prices = data['prices']
-
-            # Convert to DataFrame
-            df_data = []
-            for price_point in prices:
-                date = datetime.fromtimestamp(price_point[0] / 1000)
-                price = price_point[1]
-
-                # Create OHLC from single price point (approximation)
-                volatility = 0.02  # 2% daily volatility assumption
-                high = price * (1 + volatility)
-                low = price * (1 - volatility)
-
-                df_data.append({
-                    'date': date,
-                    'open': price,
-                    'high': high,
-                    'low': low,
-                    'close': price,
-                    'volume': 1000000  # Placeholder volume
-                })
-
-            df = pd.DataFrame(df_data)
-
-            # Group by date to get daily data
-            df['date'] = df['date'].dt.date
-            daily_df = df.groupby('date').agg({
-                'open': 'first',
-                'high': 'max',
-                'low': 'min',
-                'close': 'last',
-                'volume': 'sum'
-            }).reset_index()
-
-            daily_df['date'] = pd.to_datetime(daily_df['date'])
-            daily_df = daily_df.sort_values('date')
-
-            print(f"✅ Loaded {len(daily_df)} days of data for {ticker}")
-            return daily_df
-
-        except Exception as e:
-            print(f"❌ Error loading data for {ticker}: {str(e)}")
-            print("🔄 Trying to generate demo data...")
-            return self._generate_demo_data(ticker, start_date, end_date)
-
-        # Rate limiting
-        time.sleep(0.2)
-
-    def _get_simple_prices(
-        self, coin_id: str, start_date: str, end_date: str
-    ) -> pd.DataFrame:
-        """Alternative method using simple price endpoint"""
-        try:
-            url = f"{self.base_url}/simple/price"
-            params = {
-                'ids': coin_id,
-                'vs_currencies': 'usd',
-                'include_24hr_change': 'true'
-            }
-
-            response = self.session.get(url, params=params, timeout=10)
-            response.raise_for_status()
-
-            data = response.json()
-            if coin_id in data:
-                current_price = data[coin_id]['usd']
-                print(f"📊 Current price for {coin_id}: ${current_price}")
-
-                # Generate historical data based on current price
-                return self._generate_demo_data_from_price(
-                    coin_id, current_price, start_date, end_date
-                )
-
-        except Exception as e:
-            print(f"⚠️  Alternative method failed: {str(e)}")
-
-        return pd.DataFrame(
-            columns=['date', 'open', 'high', 'low', 'close', 'volume']
-        )
-
-    def _generate_demo_data(
-        self, ticker: str, start_date: str, end_date: str
-    ) -> pd.DataFrame:
-        """Generate demo data for testing"""
-        print(f"🎲 Generating demo data for {ticker}...")
-
-        # Historical price ranges for different assets (April 2022 levels)
-        historical_ranges = {
-            'ATOM': {'start': 12.0, 'low': 4.5, 'high': 40.0},
-            'SOL': {'start': 90.0, 'low': 8.0, 'high': 260.0},
-            'BTC': {'start': 45000.0, 'low': 15500.0, 'high': 69000.0},
-            'ETH': {'start': 3000.0, 'low': 880.0, 'high': 4800.0},
-            'DOGE': {'start': 0.14, 'low': 0.049, 'high': 0.74},
-            'SHIB': {'start': 0.000024, 'low': 0.000006, 'high': 0.000088}
-        }
-
-        clean_ticker = ticker.replace('USDT', '').replace('USD', '').upper()
-
-        if clean_ticker in historical_ranges:
-            price_info = historical_ranges[clean_ticker]
-            print(
-                f"📊 Using historical price range for {clean_ticker}: "
-                f"${price_info['low']:.4f} - ${price_info['high']:.4f}"
-            )
-            return self._generate_realistic_demo_data(
-                ticker, price_info, start_date, end_date
-            )
-        else:
-            # For unknown assets, use current price
-            base_price = 10.0
-            return self._generate_demo_data_from_price(
-                ticker, base_price, start_date, end_date
-            )
-
-    def _generate_demo_data_from_price(
-        self, ticker: str, base_price: float, start_date: str,
-        end_date: str
-    ) -> pd.DataFrame:
-        """Generate demo data from base price"""
-        start = datetime.strptime(start_date, "%Y-%m-%d")
-        end = datetime.strptime(end_date, "%Y-%m-%d")
-
-        dates = pd.date_range(start=start, end=end, freq='D')
-
-        # Generate price movement with trend and volatility
-        np.random.seed(42)  # For reproducible results
-
-        prices = []
-        current_price = base_price
-
-        for i, date in enumerate(dates):
-            # Add some trend and volatility
-            # 0.1% daily return, 3% volatility
-            daily_return = np.random.normal(0.001, 0.03)
-            current_price *= (1 + daily_return)
-
-            # Create OHLC
-            volatility = abs(np.random.normal(0, 0.02))
-            high = current_price * (1 + volatility)
-            low = current_price * (1 - volatility)
-            open_price = current_price * (1 + np.random.normal(0, 0.01))
-
-            prices.append({
-                'date': date,
-                'open': open_price,
-                'high': high,
-                'low': low,
-                'close': current_price,
-                'volume': np.random.randint(1000000, 10000000)
-            })
-
-        df = pd.DataFrame(prices)
-        print(f"✅ Generated {len(df)} days of demo data for {ticker}")
-
-        return df
-
-    def _test_ticker_validity(self, ticker: str) -> pd.DataFrame:
-        """Quick test to check if ticker is valid through API"""
-        coin_id = self.get_coin_id(ticker)
-
-        try:
-            # Try simple price endpoint first
-            url = f"{self.base_url}/simple/price"
-            params = {
-                'ids': coin_id,
-                'vs_currencies': 'usd'
-            }
-
-            headers = {
-                'User-Agent': (
-                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                    'AppleWebKit/537.36'
-                )
-            }
-
-            response = self.session.get(
-                url, params=params, headers=headers, timeout=5
-            )
-
-            if response.status_code == 200:
-                data = response.json()
-                if coin_id in data and 'usd' in data[coin_id]:
-                    current_price = data[coin_id]['usd']
-                    print(f"💰 Current price {ticker}: ${current_price}")
-
-                    # Return simple DataFrame to indicate success
-                    return pd.DataFrame([{
-                        'date': datetime.now(),
-                        'close': current_price,
-                        'high': current_price,
-                        'low': current_price,
-                        'open': current_price,
-                        'volume': 1
-                    }])
-            elif response.status_code == 404:
-                print(f"❌ Ticker {ticker} not found in CoinGecko")
-                return pd.DataFrame()
-            else:
-                print(f"⚠️  API returned code {response.status_code}")
-                return pd.DataFrame()
-
-        except Exception as e:
-            print(f"⚠️  Error checking via API: {str(e)}")
-
-        return pd.DataFrame()
 
 
 class BinanceAPI:
@@ -844,8 +545,10 @@ class BacktestEngine:
             asset.ticker, start_date, end_date
         )
         if df.empty:
-            print(f"No data for {asset.ticker}")
-            return
+            raise DataUnavailableError(
+                f"No historical data for {asset.ticker} "
+                "(unknown ticker or Binance API unreachable)"
+            )
 
         position = self.positions[asset.ticker]
         structural_high = self.technical_analysis.get_structural_high(df)
@@ -972,14 +675,15 @@ class BacktestEngine:
                 self.trade_logger.log_trade(trade)
 
                 # Mark all TP levels as sold
-                for i in range(len(position.tp_sold_quantity)):
-                    position.tp_sold_quantity[i] = position.total_quantity
+                position.tp_sold_quantity[-1] += remaining_quantity
 
     def _calculate_tp_price(
         self, tp: TakeProfit, avg_price: float, structural_high: float
     ) -> float:
         """Calculate target price for take profit"""
         if tp.tp_type == 'percent':
+            if tp.value is None:
+                return 0.0
             return avg_price * (1 + tp.value / 100.0)
         elif tp.tp_type == 'ath':
             # If ATH is less than 300% from avg_price, use 400%
@@ -1294,7 +998,7 @@ def main():
 
         if not portfolio.assets:
             print("❌ No assets for testing!")
-            return
+            return 1
 
         print(f"\n📈 Starting backtest with {len(portfolio.assets)} assets...")
 
@@ -1330,7 +1034,10 @@ def main():
 
         # Create filename with timestamp
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f"{results_dir}/backtest_{portfolio.name}_{timestamp}.csv"
+        filename = (
+            f"{results_dir}/backtest_{safe_filename(portfolio.name)}"
+            f"_{timestamp}.csv"
+        )
 
         # Get trades DataFrame
         trades_df = engine.trade_logger.get_trades_df()
@@ -1396,11 +1103,12 @@ def main():
 
     except KeyboardInterrupt:
         print("\n❌ Interrupted by user")
+        return 130
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        print(f"❌ Error: {str(e)}", file=sys.stderr)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
